@@ -21,7 +21,7 @@ The upstream repo originally contained only an **"Initial commit"** with two fil
 
 **Scaffold applied:** The folder template has been applied and pushed to `origin/main`.
 
-**Phase 1 complete (committed locally, NOT yet pushed):**
+**Phase 1 complete (committed and pushed to `origin/main`):**
 - Job model (`Job`, `JobStatus`) in `backend/app/jobs/models.py`
 - Database connection (`Base`, `get_engine`, `get_session_local`, `get_db`) in `backend/app/db/session.py`
 - Alembic migrations (`alembic/`, initial migration `0001_create_jobs_table`)
@@ -30,7 +30,16 @@ The upstream repo originally contained only an **"Initial commit"** with two fil
 - Tests: 5 tests in `backend/tests/test_job_model.py`, all passing
 - Ruff lint/format: all checks passing
 
-Local commits ahead of `origin/main` — Phase 1 changes are ready to review **before** pushing (per user instruction: don't push additional changes without review).
+**Phase 2 complete (reviewed by GLM reviewer subagent, committed and pushed to `origin/main`):**
+- `POST /jobs` (creates `Job` with status `pending`, 201) in `backend/app/api/routes.py`
+- `GET /jobs/{job_id}` (status/result, 404 for unknown id) in `backend/app/api/routes.py`
+- Pydantic API contract in `backend/app/jobs/schemas.py` (`JobCreate`, `JobRead`)
+- Routes wired into `backend/app/main.py`
+- 6 API tests in `backend/tests/test_api.py` (TestClient + in-memory SQLite) — full suite 13 passing
+- Review fixes applied: `JobCreate.handler` bounded to `min_length=1, max_length=255` to mirror the DB `String(255)` column (avoids a Postgres-only naked 500); boundary tests added
+- **Conscious deferral:** handler-registry validation is Phase 3 scope (registry doesn't exist yet); documented in `create_job` docstring
+
+Minor polish deferred to a later pass: `JobRead.status` could use the `JobStatus` enum; `created_at`/`updated_at` typed optional though non-null; router `tags=["jobs"]`; `# noqa: B008` is a no-op under current ruff config; `README.md` needs Phase 2 updates.
 
 ## 3. Tech stack (decisions made)
 
@@ -91,10 +100,13 @@ taskflow/
 │   │   │   └── session.py    # SQLAlchemy engine, session, Base
 │   │   ├── jobs/
 │   │   │   ├── __init__.py
-│   │   │   └── models.py     # Job model + JobStatus enum
-│   │   └── api/              # route modules (to be implemented)
+│   │   │   ├── models.py     # Job model + JobStatus enum
+│   │   │   └── schemas.py    # Pydantic API contract (JobCreate, JobRead)
+│   │   └── api/
+│   │       └── routes.py     # POST /jobs, GET /jobs/{job_id}
 │   └── tests/
-│       └── test_job_model.py
+│       ├── test_job_model.py
+│       └── test_api.py
 ├── cli/
 │   └── README.md
 ├── frontend/
@@ -113,7 +125,8 @@ Module responsibilities:
 - `backend/app/core/config.py` — `Settings` class reading env vars (`DATABASE_URL`, `REDIS_URL`, etc.)
 - `backend/app/db/session.py` — `Base`, `get_engine()`, `get_session_local()`, `get_db()` dependency
 - `backend/app/jobs/models.py` — `Job` model + `JobStatus` enum (`pending`, `running`, `completed`, `failed`, `cancelled`)
-- `backend/app/api/` — API route modules (to be implemented — job submission/retrieval next)
+- `backend/app/jobs/schemas.py` — Pydantic request/response schemas; `JobCreate.handler` bounded 1–255 to mirror the DB column
+- `backend/app/api/routes.py` — `POST /jobs` (201, creates pending job), `GET /jobs/{job_id}` (200/404)
 - `backend/tests/` — pytest suite (in-memory SQLite)
 - `infra/docker-compose.yml` — Postgres + Redis + API + worker services
 
@@ -151,18 +164,19 @@ Module responsibilities:
 8. **Document assumptions:** If a design decision isn't specified, note it as an assumption and flag it for the user.
 9. **Show before pushing:** Present implemented changes to the user for review before pushing to GitHub.
 
-## 9. Immediate next action (Phase 2 — awaiting review)
+## 9. Immediate next action (Phase 3 — Redis integration + synchronous workers)
 
-Phase 1 code is implemented locally and tests pass. **Show the user the diff**, then implement:
+Phase 1 + Phase 2 are committed and pushed. Next:
 
-1. Job submission API route (`POST /jobs`) — creates a `Job` with status `pending`
-2. Job retrieval API route (`GET /jobs/{job_id}`) — returns job status/result
-3. Wire routes into `backend/app/main.py`
-4. Add tests for the API routes (using `httpx` + FastAPI `TestClient` against in-memory SQLite)
-5. Only after user review: push Phase 1 + Phase 2 to `origin/main`
+1. Add Redis (`REDIS_URL` env var) as the job queue/broker
+2. Build the **handler registry** (worker-side module mapping names → registered handler functions; registered handlers only, never arbitrary user code)
+3. Synchronous worker process: dequeue from Redis, look up handler in registry, execute, update `Job` status/result/error
+4. API-side: once the registry exists, validate `handler` at submission time (422 listing valid handlers) — currently deferred and documented in `create_job` docstring
+5. Worker-side lifecycle for unknown/handler failures: a job stuck in `pending` (e.g. typo'd handler name submitted before registry validation) must be failed with `error` set, not left hanging
+6. Alembic migration only if schema changes
 
-Then Phase 3: Redis integration + synchronous workers.
+Then Phase 4: concurrency, retries with exponential backoff, fault tolerance, observability.
 
 ---
 
-*Last updated: Phase 1 complete (job model, DB, migrations, tests, uv, README). Awaiting user review before push.*
+*Last updated: Phase 2 complete (job submission/retrieval API, schemas, 13 tests passing, reviewed and pushed). Next: Phase 3 — Redis + workers.*
