@@ -15,12 +15,17 @@ This file is written for **me (the coding agent)** to understand the TaskFlow pr
 
 ## 2. Repo state (as of setup)
 
-The upstream repo currently contains only an **"Initial commit"** with two files:
-
+The upstream repo originally contained only an **"Initial commit"** with two files:
 - `.gitignore` (Python-focused, includes Redis/Celery/venv entries)
 - `LICENSE` (Apache-2.0)
 
-There is **no source code yet**. The repo is a blank scaffold waiting for the folder template and implementation. Do not assume any package layout exists — the folder template will come from the user next.
+**Scaffold complete:** The folder template below has been applied and committed locally. The project now has a full directory tree with placeholder modules, entrypoint, requirements, docker-compose, and READMEs. See section 9 for the canonical tree.
+
+Local commits ahead of `origin/main`:
+- `3b10357` chore: add agents.md project guide
+- `279ce26` feat: scaffold TaskFlow project structure
+
+Push to GitHub is **blocked** — no GitHub credentials are currently configured (previous `sat-az` account logged out). You must authenticate as `MAvRK7` (`gh auth login`) before I can push.
 
 ## 3. Tech stack (target)
 
@@ -63,15 +68,50 @@ pip install fastapi uvicorn sqlalchemy psycopg2-binary redis alembic pytest http
 
 ## 5. Folder structure
 
-**PENDING:** The user said they will provide a folder template next. I have not imposed any layout yet.
+Canonical tree (applied from your template and committed locally):
 
-When the template arrives, I will:
-1. Create the directories and placeholder modules.
-2. Add a `__init__.py` per package where appropriate.
-3. Update this `agents.md` with the canonical tree and module responsibilities.
-4. Add `pyproject.toml` / `requirements.txt` (or `uv`/`poetry` — to be confirmed) plus dev tooling config.
+```
+taskflow/
+├── backend/
+│   ├── app/
+│   │   ├── __init__.py
+│   │   ├── api/
+│   │   │   └── __init__.py
+│   │   ├── core/
+│   │   │   └── __init__.py
+│   │   ├── db/
+│   │   │   └── __init__.py
+│   │   ├── jobs/
+│   │   │   └── __init__.py
+│   │   └── main.py
+│   ├── tests/
+│   │   └── __init__.py
+│   └── requirements.txt
+├── cli/
+│   └── README.md
+├── frontend/
+│   └── README.md
+├── infra/
+│   └── docker-compose.yml
+├── docs/
+│   └── README.md
+├── agents.md
+├── LICENSE
+└── README.md
+```
 
-Until then, **do not create application code** beyond what is needed for setup validation.
+Module responsibilities:
+- `backend/app/main.py` — FastAPI app entrypoint (`/health`, `/` routes)
+- `backend/app/api/` — API route modules (to be implemented)
+- `backend/app/core/` — config & utilities (to be implemented)
+- `backend/app/db/` — database / SQLAlchemy setup (to be implemented)
+- `backend/app/jobs/` — job models, queue logic, workers (to be implemented)
+- `backend/tests/` — pytest suite
+- `backend/requirements.txt` — Python dependencies
+- `infra/docker-compose.yml` — Postgres + Redis + API + worker services
+- `cli/`, `frontend/`, `docs/` — placeholders for future build-out
+
+Package manager: `pip` + `requirements.txt` (default assumption; confirm if you prefer uv/poetry/pdm).
 
 ## 6. Coding standards & tooling (defaults, confirm with user)
 
@@ -98,24 +138,22 @@ If the user prefers a different toolchain (uv, poetry, pdm, etc.), update this s
 7. **Update `agents.md`** when conventions, stack, or folder structure change.
 8. **Document assumptions:** If a design decision isn't specified, note it as an assumption and flag it for the user.
 
-## 8. What I need from the user (next steps)
+## 8. What I need from you (next steps)
 
-1. **Folder template** — the directory/package layout for TaskFlow (api/, workers/, core/, models/, alembic/, tests/, cli/, etc.).
-2. **Dependency / package manager preference** — `requirements.txt` + pip, `pyproject.toml` + uv/poetry/pdm, or something else.
-3. **Database / Redis access** — local (Homebrew) vs remote connection strings; whether to add Docker Compose later.
-4. **ORM / migration choice** — SQLAlchemy + Alembic (default assumption) or raw psycopg / asyncpg.
-5. **Worker execution model** — sync workers vs asyncio workers vs RQ-like library.
+1. **GitHub authentication as `MAvRK7`** — run `gh auth login` and authenticate as `MAvRK7` so I can push the local commits to `origin/main`. (Previous `sat-az` account logged out at your request.)
+2. **Dependency / package manager preference** — `requirements.txt` + pip is the current default; confirm if you'd rather use uv, poetry, or pdm.
+3. **Database / Redis access** — local (Homebrew) vs remote connection strings; whether to keep/add Docker Compose later.
+4. **ORM / migration choice** — SQLAlchemy + Alembic (default assumption in `requirements.txt`) or raw psycopg / asyncpg.
+5. **Worker execution model** — sync workers vs asyncio workers vs a queue library (RQ-style, etc.).
 6. **Test strategy** — unit vs integration vs against real Postgres/Redis vs fakes/mocks.
 
 ## 9. Immediate next action
 
-Wait for the folder template, then:
-1. Scaffold the directory tree + `__init__.py` files.
-2. Add `pyproject.toml` / `requirements.txt` and lock file.
-3. Add minimal FastAPI app entrypoint + health-check route.
-4. Add Postgres + Redis connection helpers (config via env vars, `.env.example`).
-5. Add `pytest` config and a smoke test.
-6. Commit to a feature branch and push.
+**You need to:** run `gh auth login` and authenticate as `MAvRK7`.
+
+Once authenticated, I will:
+1. `git push origin main` to publish the scaffold + agents.md
+2. Then wait for your feedback on the stack choices above before implementing job models, queue logic, workers, and API routes.
 
 ---
 
