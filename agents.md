@@ -7,7 +7,7 @@ This file is written for **me (the coding agent)** to understand the TaskFlow pr
 ## 1. Project identity
 
 - **Name:** TaskFlow
-- **Repo:** `https://github.com/MAvRK7/TaskFlow.git`
+- **Repo:** `https://github.com/MAvRK7/TaskFlow.git` (pushed, authenticated as `MAvRK7`)
 - **Working directory:** `/Users/satvikraghav/coding/TaskFlow`
 - **Description:** Distributed background job processing platform built with **FastAPI**, **PostgreSQL**, **Redis**, and **Python workers**. Applications, CLI users, and AI agents submit async jobs, track execution status, and retrieve results through a unified API.
 - **Core concepts explored:** job queues, concurrency, retries, fault tolerance, scalability, observability.
@@ -16,77 +16,85 @@ This file is written for **me (the coding agent)** to understand the TaskFlow pr
 ## 2. Repo state (as of setup)
 
 The upstream repo originally contained only an **"Initial commit"** with two files:
-- `.gitignore` (Python-focused, includes Redis/Celery/venv entries)
+- `.gitignore` (Python-focused)
 - `LICENSE` (Apache-2.0)
 
-**Scaffold complete:** The folder template below has been applied and committed locally. The project now has a full directory tree with placeholder modules, entrypoint, requirements, docker-compose, and READMEs. See section 9 for the canonical tree.
+**Scaffold applied:** The folder template has been applied and pushed to `origin/main`.
 
-Local commits ahead of `origin/main`:
-- `3b10357` chore: add agents.md project guide
-- `279ce26` feat: scaffold TaskFlow project structure
+**Phase 1 complete (committed locally, NOT yet pushed):**
+- Job model (`Job`, `JobStatus`) in `backend/app/jobs/models.py`
+- Database connection (`Base`, `get_engine`, `get_session_local`, `get_db`) in `backend/app/db/session.py`
+- Alembic migrations (`alembic/`, initial migration `0001_create_jobs_table`)
+- uv package management (`pyproject.toml`, `uv.lock`)
+- `.env.example` (never commit `.env`)
+- Tests: 5 tests in `backend/tests/test_job_model.py`, all passing
+- Ruff lint/format: all checks passing
 
-Push to GitHub is **blocked** — no GitHub credentials are currently configured (previous `sat-az` account logged out). You must authenticate as `MAvRK7` (`gh auth login`) before I can push.
+Local commits ahead of `origin/main` — Phase 1 changes are ready to review **before** pushing (per user instruction: don't push additional changes without review).
 
-## 3. Tech stack (target)
+## 3. Tech stack (decisions made)
 
-| Layer | Technology | Notes |
-|-------|-----------|-------|
-| API | FastAPI (Python) | REST API for job submission, status, results |
-| Job store / state | PostgreSQL | Job definitions, execution history, results |
-| Job queue / broker | Redis | Pending job queue, pub/sub for status updates |
-| Workers | Python (background worker processes) | Dequeue, execute, retry, report status |
-| Concurrency | asyncio / threading / multiprocessing | Per worker design TBD |
-| Retries / fault tolerance | Exponential backoff, dead-letter queue | TBD |
-| Observability | Logging, metrics, tracing | TBD |
-| CLI | TBD | For submitting jobs from terminal |
-| Client SDKs | TBD | For apps and AI agents |
+| Layer | Technology | Decision |
+|-------|-----------|----------|
+| API | FastAPI (Python 3.13) | REST API for job submission, status, results |
+| Job store / state | PostgreSQL (Supabase) | Connection via `DATABASE_URL` env var |
+| Job queue / broker | Redis | Connection via `REDIS_URL` env var; Docker locally |
+| Workers | Python (synchronous, separate processes) | Modular; concurrency added later |
+| ORM / migrations | SQLAlchemy 2.0 + Alembic | `app/db/session.py`, `alembic/` |
+| Package manager | uv | `pyproject.toml` + `uv.lock` (committed) |
+| Config | Environment variables | `.env.example` template; `.env` never committed |
+| Tests | pytest | In-memory SQLite for unit tests |
+| Lint/format | Ruff | `ruff check`, `ruff format` |
 
 ## 4. Local environment
 
 Checked on this machine (macOS):
 
 - **Python:** 3.13.13 ✅
-- **pip:** 26.1 ✅
 - **Git:** configured (user: Satvik Raghav / satvikraghav007@gmail.com) ✅
+- **uv:** 0.13.8 ✅ (installed at `~/.local/bin/uv`)
 - **Docker:** ❌ not installed
 - **PostgreSQL (`psql`):** ❌ not installed
 - **Redis (`redis-cli`):** ❌ not installed
 
-Because Docker is unavailable, local dev should use **Homebrew** to install PostgreSQL and Redis, or the user can provide remote connection strings. Do not assume Docker Compose is available unless the user adds it.
+Docker is unavailable locally, so Redis runs via Docker in deployment/CI. Database is Supabase PostgreSQL accessed via `DATABASE_URL` env var. Tests use in-memory SQLite so no live DB is required.
 
-Suggested local setup (to confirm with the user):
+Suggested local Redis (Docker not available on this machine — user must provide or install Docker):
 ```bash
-brew install postgresql redis
-brew services start postgresql
-brew services start redis
-createdb taskflow
-python3 -m venv .venv
-source .venv/bin/activate
-pip install --upgrade pip
-pip install fastapi uvicorn sqlalchemy psycopg2-binary redis alembic pytest httpx
+# If Docker becomes available:
+docker run -d -p 6379:6379 redis:7-alpine
 ```
 
 ## 5. Folder structure
 
-Canonical tree (applied from your template and committed locally):
+Canonical tree:
 
 ```
 taskflow/
 ├── backend/
+│   ├── pyproject.toml        # uv project config + dependencies
+│   ├── uv.lock               # locked dependencies (committed)
+│   ├── .env.example          # env var template (copy to .env; never commit .env)
+│   ├── alembic.ini           # Alembic config
+│   ├── alembic/
+│   │   ├── env.py            # loads .env, target_metadata = Base.metadata
+│   │   └── versions/
+│   │       └── 0001_create_jobs_table.py
 │   ├── app/
 │   │   ├── __init__.py
-│   │   ├── api/
-│   │   │   └── __init__.py
+│   │   ├── main.py           # FastAPI entrypoint (/health, /)
 │   │   ├── core/
-│   │   │   └── __init__.py
+│   │   │   ├── __init__.py
+│   │   │   └── config.py     # Settings from environment variables
 │   │   ├── db/
-│   │   │   └── __init__.py
+│   │   │   ├── __init__.py
+│   │   │   └── session.py    # SQLAlchemy engine, session, Base
 │   │   ├── jobs/
-│   │   │   └── __init__.py
-│   │   └── main.py
-│   ├── tests/
-│   │   └── __init__.py
-│   └── requirements.txt
+│   │   │   ├── __init__.py
+│   │   │   └── models.py     # Job model + JobStatus enum
+│   │   └── api/              # route modules (to be implemented)
+│   └── tests/
+│       └── test_job_model.py
 ├── cli/
 │   └── README.md
 ├── frontend/
@@ -102,32 +110,36 @@ taskflow/
 
 Module responsibilities:
 - `backend/app/main.py` — FastAPI app entrypoint (`/health`, `/` routes)
-- `backend/app/api/` — API route modules (to be implemented)
-- `backend/app/core/` — config & utilities (to be implemented)
-- `backend/app/db/` — database / SQLAlchemy setup (to be implemented)
-- `backend/app/jobs/` — job models, queue logic, workers (to be implemented)
-- `backend/tests/` — pytest suite
-- `backend/requirements.txt` — Python dependencies
+- `backend/app/core/config.py` — `Settings` class reading env vars (`DATABASE_URL`, `REDIS_URL`, etc.)
+- `backend/app/db/session.py` — `Base`, `get_engine()`, `get_session_local()`, `get_db()` dependency
+- `backend/app/jobs/models.py` — `Job` model + `JobStatus` enum (`pending`, `running`, `completed`, `failed`, `cancelled`)
+- `backend/app/api/` — API route modules (to be implemented — job submission/retrieval next)
+- `backend/tests/` — pytest suite (in-memory SQLite)
 - `infra/docker-compose.yml` — Postgres + Redis + API + worker services
-- `cli/`, `frontend/`, `docs/` — placeholders for future build-out
 
-Package manager: `pip` + `requirements.txt` (default assumption; confirm if you prefer uv/poetry/pdm).
-
-## 6. Coding standards & tooling (defaults, confirm with user)
+## 6. Coding standards & tooling
 
 - **Language:** Python 3.13+ (type hints required on public APIs)
-- **Formatter/linter:** Ruff (fast, single tool) — prefer over black + flake8 + isort
+- **Formatter/linter:** Ruff — `ruff check .` and `ruff format --check .` must pass
 - **Type checker:** mypy (strict on new modules)
-- **Tests:** pytest
-- **Test client:** httpx (for FastAPI `TestClient`/`AsyncClient`)
-- **Migrations:** Alembic (if SQLAlchemy is used)
+- **Tests:** pytest — add tests for each component; run full suite before committing
+- **Migrations:** Alembic — `uv run alembic revision --autogenerate` or manual version files
 - **Commit style:** Conventional Commits (`feat:`, `fix:`, `docs:`, `refactor:`, `test:`, `chore:`)
 - **Branch style:** `feature/<short-description>`, `fix/<short-description>`, `chore/<short-description>`
 - **Pre-commit:** run `ruff check`, `ruff format --check`, `mypy`, `pytest` before committing.
 
-If the user prefers a different toolchain (uv, poetry, pdm, etc.), update this section and the lock-file policy accordingly.
+## 7. Implementation constraints (from user)
 
-## 7. How I should work (agent workflow)
+- Keep the initial implementation minimal. Don't build everything at once.
+- Use environment variables for all credentials and connection strings. Include a `.env.example`, but never commit `.env`.
+- Implement registered job handlers only; never execute arbitrary user-supplied Python or shell commands.
+- Keep API, database, queue and worker responsibilities separated.
+- Add basic tests as we implement each component.
+- Document the architecture and important decisions in the README.
+- **Order:** job model → database connection → migrations → job submission/retrieval → Redis → workers.
+- **Do not push additional changes without showing me what was implemented and letting me review them.**
+
+## 8. How I should work (agent workflow)
 
 1. **Understand before writing:** Read existing code and this file before implementing anything.
 2. **Small, focused changes:** One logical change per commit. Avoid giant diffs.
@@ -137,24 +149,20 @@ If the user prefers a different toolchain (uv, poetry, pdm, etc.), update this s
 6. **Push to feature branches, not directly to `main`** (unless it's the initial scaffold).
 7. **Update `agents.md`** when conventions, stack, or folder structure change.
 8. **Document assumptions:** If a design decision isn't specified, note it as an assumption and flag it for the user.
+9. **Show before pushing:** Present implemented changes to the user for review before pushing to GitHub.
 
-## 8. What I need from you (next steps)
+## 9. Immediate next action (Phase 2 — awaiting review)
 
-1. **GitHub authentication as `MAvRK7`** — run `gh auth login` and authenticate as `MAvRK7` so I can push the local commits to `origin/main`. (Previous `sat-az` account logged out at your request.)
-2. **Dependency / package manager preference** — `requirements.txt` + pip is the current default; confirm if you'd rather use uv, poetry, or pdm.
-3. **Database / Redis access** — local (Homebrew) vs remote connection strings; whether to keep/add Docker Compose later.
-4. **ORM / migration choice** — SQLAlchemy + Alembic (default assumption in `requirements.txt`) or raw psycopg / asyncpg.
-5. **Worker execution model** — sync workers vs asyncio workers vs a queue library (RQ-style, etc.).
-6. **Test strategy** — unit vs integration vs against real Postgres/Redis vs fakes/mocks.
+Phase 1 code is implemented locally and tests pass. **Show the user the diff**, then implement:
 
-## 9. Immediate next action
+1. Job submission API route (`POST /jobs`) — creates a `Job` with status `pending`
+2. Job retrieval API route (`GET /jobs/{job_id}`) — returns job status/result
+3. Wire routes into `backend/app/main.py`
+4. Add tests for the API routes (using `httpx` + FastAPI `TestClient` against in-memory SQLite)
+5. Only after user review: push Phase 1 + Phase 2 to `origin/main`
 
-**You need to:** run `gh auth login` and authenticate as `MAvRK7`.
-
-Once authenticated, I will:
-1. `git push origin main` to publish the scaffold + agents.md
-2. Then wait for your feedback on the stack choices above before implementing job models, queue logic, workers, and API routes.
+Then Phase 3: Redis integration + synchronous workers.
 
 ---
 
-*Last updated: initial scaffold setup. No application code present yet.*
+*Last updated: Phase 1 complete (job model, DB, migrations, tests, uv, README). Awaiting user review before push.*
