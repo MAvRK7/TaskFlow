@@ -1,0 +1,52 @@
+# TaskFlow infrastructure (Docker Compose)
+#
+# NOTE: Docker is not available on this dev machine, so this file is a
+# template for deployment/CI rather than a locally verified setup.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: taskflow
+      POSTGRES_PASSWORD: taskflow
+      POSTGRES_DB: taskflow
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+
+  api:
+    build:
+      context: ../backend
+      dockerfile: Dockerfile
+    depends_on:
+      - postgres
+      - redis
+    environment:
+      DATABASE_URL: postgresql+psycopg2://taskflow:taskflow@postgres:5432/taskflow
+      REDIS_URL: redis://redis:6379/0
+    ports:
+      - "8000:8000"
+
+  worker:
+    build:
+      context: ../backend
+      dockerfile: Dockerfile
+    depends_on:
+      - postgres
+      - redis
+    environment:
+      DATABASE_URL: postgresql+psycopg2://taskflow:taskflow@postgres:5432/taskflow
+      REDIS_URL: redis://redis:6379/0
+    command: python -m app.worker
+
+volumes:
+  postgres_data:
+  redis_data:
