@@ -7,13 +7,28 @@ implementation uses Redis; tests inject an in-memory fake through
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+from typing import Protocol, runtime_checkable
 
 from redis import Redis
 
 from app.core.config import get_settings
 
 QUEUE_NAME = "taskflow:jobs"
+
+
+@runtime_checkable
+class QueueProtocol(Protocol):
+    """Protocol for queue clients used by API and worker code.
+
+    Tests inject an in-memory fake implementing this protocol through
+    ``get_queue()``; route code never sees Redis types.
+    """
+
+    def enqueue(self, job_id: str) -> None: ...
+
+    def dequeue(self, timeout: float) -> str | None: ...
+
+    def close(self) -> None: ...
 
 
 class QueueClient:
@@ -38,7 +53,7 @@ class QueueClient:
 
         Returns ``None`` when the timeout elapses with no item.
         """
-        result = self._client.blpop(QUEUE_NAME, timeout=int(timeout))
+        result = self._client.blpop(QUEUE_NAME, timeout=timeout)
         if result is None:
             return None
         _, value = result
@@ -54,19 +69,17 @@ class QueueClient:
 _client = QueueClient()
 
 
-def get_queue() -> Iterator[QueueClient]:
-    """Yield a queue client for dependency injection.
+def get_queue() -> QueueProtocol:
+    """Return the shared queue client for dependency injection.
 
     Intended for use as a FastAPI dependency:
 
-        def route(queue: QueueClient = Depends(get_queue)): ...
+        def route(queue: QueueProtocol = Depends(get_queue)): ...
 
-    Tests override this dependency with an in-memory fake.
+    Tests override this dependency with an in-memory fake implementing
+    QueueProtocol.
     """
-    try:
-        yield _client
-    finally:
-        pass
+    return _client
 
 
-__all__ = ["QUEUE_NAME", "QueueClient", "get_queue"]
+__all__ = ["QUEUE_NAME", "QueueClient", "QueueProtocol", "get_queue"]
