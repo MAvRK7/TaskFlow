@@ -30,16 +30,16 @@ The upstream repo originally contained only an **"Initial commit"** with two fil
 - Tests: 5 tests in `backend/tests/test_job_model.py`, all passing
 - Ruff lint/format: all checks passing
 
-**Phase 2 complete (reviewed by GLM reviewer subagent, committed and pushed to `origin/main`):**
+**Phase 2 complete (reviewed, committed and pushed to `origin/main`):**
 - `POST /jobs` (creates `Job` with status `pending`, 201) in `backend/app/api/routes.py`
 - `GET /jobs/{job_id}` (status/result, 404 for unknown id) in `backend/app/api/routes.py`
 - Pydantic API contract in `backend/app/jobs/schemas.py` (`JobCreate`, `JobRead`)
 - Routes wired into `backend/app/main.py`
 - 6 API tests in `backend/tests/test_api.py` (TestClient + in-memory SQLite) — full suite 13 passing
-- Review fixes applied: `JobCreate.handler` bounded to `min_length=1, max_length=255` to mirror the DB `String(255)` column (avoids a Postgres-only naked 500); boundary tests added
+- Review fixes applied: `JobCreate.handler` bounded to `min_length=1, max_length=255` to mirror the DB `String(255)` column (avoids a Postgres-only naked 500); boundary tests added for invalid payload type and oversized handler
 - **Conscious deferral:** handler-registry validation is Phase 3 scope (registry doesn't exist yet); documented in `create_job` docstring
 
-Minor polish deferred to a later pass: `JobRead.status` could use the `JobStatus` enum; `created_at`/`updated_at` typed optional though non-null; router `tags=["jobs"]`; `# noqa: B008` is a no-op under current ruff config; `README.md` needs Phase 2 updates.
+Minor polish deferred to a later pass: `JobRead.status` could use the `JobStatus` enum; `created_at`/`updated_at` typed optional though non-null; router `tags=["jobs"]`.
 
 ## 3. Tech stack (decisions made)
 
@@ -54,8 +54,29 @@ Minor polish deferred to a later pass: `JobRead.status` could use the `JobStatus
 | Config | Environment variables | `.env.example` template; `.env` never committed |
 | Tests | pytest | In-memory SQLite for unit tests |
 | Lint/format | Ruff | `ruff check`, `ruff format` |
+| CI/CD | GitHub Actions + Dependabot | `.github/workflows/ci.yml`, `.github/dependabot.yml`, `.github/CODEOWNERS` |
+| Branch protection | GitHub repo settings | `main` protected; status checks + code owner reviews required |
 
-## 4. Local environment
+## 4. CI/CD (GitHub Actions + Dependabot)
+
+**`.github/workflows/ci.yml`** — three jobs:
+- **`test`** — `uv sync --locked`, `uv lock --check`, `uv run pytest tests/`, `uv run ruff check .`, `uv run ruff format --check .`, `uv run mypy app/`. Runs on push/PR to `main`. All `run:` steps execute from `backend/` via `defaults.run.working-directory`.
+- **`integration`** — Same steps, but with Postgres (`postgres:16-alpine`) and Redis (`redis:7-alpine`) service containers provisioned with health checks. Ready for Phase 3 worker tests; current tests still run against in-memory SQLite.
+- **Action versions** — `actions/checkout@v7`, `actions/setup-python@v7`, `astral-sh/setup-uv@v7` (bumped via Dependabot PRs #1-#3).
+
+**`.github/dependabot.yml`** — weekly updates:
+- `uv` ecosystem at `/backend` (Python deps → `uv.lock`)
+- `github-actions` ecosystem at `/` (action versions)
+
+**`.github/CODEOWNERS`** — `@MAvRK7` review required for `/backend/`, `/.github/`, `pyproject.toml`, `uv.lock`, `agents.md`, `README.md`.
+
+**Branch protection on `main`** (GitHub repo settings):
+- Required status checks: `CI/test`, `CI/integration` (strict — must be up to date)
+- Required PR reviews: 1 approval, code owner review required, stale reviews dismissed
+- Force pushes: blocked
+- Branch deletion: blocked
+
+## 5. Local environment
 
 Checked on this machine (macOS):
 
@@ -115,6 +136,11 @@ taskflow/
 │   └── docker-compose.yml
 ├── docs/
 │   └── README.md
+├── .github/
+│   ├── CODEOWNERS          # required reviewers for backend, CI/CD, lockfiles, docs
+│   ├── dependabot.yml      # weekly dependency updates
+│   └── workflows/
+│       └── ci.yml          # test + integration jobs, working-directory: backend
 ├── agents.md
 ├── LICENSE
 └── README.md
@@ -129,6 +155,9 @@ Module responsibilities:
 - `backend/app/api/routes.py` — `POST /jobs` (201, creates pending job), `GET /jobs/{job_id}` (200/404)
 - `backend/tests/` — pytest suite (in-memory SQLite)
 - `infra/docker-compose.yml` — Postgres + Redis + API + worker services
+- `.github/workflows/ci.yml` — CI pipeline (test + integration jobs, working-directory: `backend`)
+- `.github/dependabot.yml` — weekly dependency updates (uv + GitHub Actions)
+- `.github/CODEOWNERS` — required reviewers for mergeable changes
 
 ## 6. Coding standards & tooling
 
@@ -179,4 +208,4 @@ Then Phase 4: concurrency, retries with exponential backoff, fault tolerance, ob
 
 ---
 
-*Last updated: Phase 2 complete (job submission/retrieval API, schemas, 13 tests passing, reviewed and pushed). Next: Phase 3 — Redis + workers.*
+*Last updated: Phase 2 complete + CI/CD added (GitHub Actions, Dependabot, CODEOWNERS, branch protection on main). All Dependabot PRs merged (action versions v7). Next: Phase 3 — Redis + workers.*
