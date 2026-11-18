@@ -18,6 +18,11 @@ down_revision: str | None = None
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
+# Explicitly public: Alembic reads these identifiers by name via module
+# introspection. Declared in __all__ so code-scanning tools do not flag
+# them as unused globals.
+__all__ = ["branch_labels", "depends_on", "down_revision", "revision"]
+
 
 def upgrade() -> None:
     # Create the PostgreSQL native enum type. The DO block makes the
