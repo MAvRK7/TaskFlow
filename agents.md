@@ -95,6 +95,18 @@ Suggested local Redis (Docker not available on this machine — user must provid
 docker run -d -p 6379:6379 redis:7-alpine
 ```
 
+## 4.5. Security
+
+| Feature | Status | Notes |
+|---------|--------|-------|
+| Secret scanning | ✅ Enabled | GitHub scans for leaked secrets in commits |
+| Secret scanning push protection | ✅ Enabled | Blocks pushes containing secrets |
+| Dependabot security updates | ✅ Enabled | Automated PRs for vulnerable dependencies |
+| Code scanning (CodeQL) | ✅ Configured | `.github/workflows/codeql.yml` — Python, weekly + on push/PR |
+| Dependency review | Via Dependabot | PRs show dependency change risk before merge |
+
+All credentials and connection strings must use environment variables (`DATABASE_URL`, `REDIS_URL`). `.env` is gitignored and must never be committed.
+
 ## 5. Folder structure
 
 Canonical tree:
@@ -140,7 +152,8 @@ taskflow/
 │   ├── CODEOWNERS          # required reviewers for backend, CI/CD, lockfiles, docs
 │   ├── dependabot.yml      # weekly dependency updates
 │   └── workflows/
-│       └── ci.yml          # test + integration jobs, working-directory: backend
+│       ├── ci.yml          # test + integration jobs, working-directory: backend
+│       └── codeql.yml      # CodeQL code scanning (weekly + on push/PR)
 ├── agents.md
 ├── LICENSE
 └── README.md
@@ -156,6 +169,7 @@ Module responsibilities:
 - `backend/tests/` — pytest suite (in-memory SQLite)
 - `infra/docker-compose.yml` — Postgres + Redis + API + worker services
 - `.github/workflows/ci.yml` — CI pipeline (test + integration jobs, working-directory: `backend`)
+- `.github/workflows/codeql.yml` — CodeQL code scanning (Python, weekly + on push/PR)
 - `.github/dependabot.yml` — weekly dependency updates (uv + GitHub Actions)
 - `.github/CODEOWNERS` — required reviewers for mergeable changes
 
