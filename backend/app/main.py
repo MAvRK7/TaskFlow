@@ -6,6 +6,11 @@ Distributed background job processing platform.
 from fastapi import FastAPI
 
 from app.api.routes import router
+from app.jobs.handlers import add_numbers_handler, echo_handler  # noqa: F401
+
+# The import above triggers the @register_handler decorators in
+# app.jobs.handlers, populating the registry so that POST /jobs can validate
+# handler names and workers can dispatch them.
 
 app = FastAPI(
     title="TaskFlow",
