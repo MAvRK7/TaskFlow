@@ -1,7 +1,8 @@
 """TaskFlow API routes.
 
 Endpoints for job submission and retrieval. Database access is delegated
-to the shared session dependency in ``app.db.session``.
+to the shared session dependency in ``app.db.session``; queue access is
+delegated to the shared queue dependency in ``app.queue.client``.
 """
 
 from __future__ import annotations
@@ -12,8 +13,10 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
-from app.jobs.models import Job
+from app.jobs.models import Job, JobStatus
+from app.jobs.registry import get_handler, registered_handlers
 from app.jobs.schemas import JobCreate, JobRead
+from app.queue.client import QueueProtocol, get_queue
 
 router = APIRouter()
 
@@ -27,22 +30,41 @@ router = APIRouter()
 def create_job(
     job_create: JobCreate,
     db: Session = Depends(get_db),  # noqa: B008 - standard FastAPI dependency pattern
+    queue: QueueProtocol = Depends(get_queue),  # noqa: B008 - standard FastAPI dependency pattern
 ) -> Job:
-    """Create a new job with ``pending`` status.
+    """Create a new job with ``pending`` status and enqueue it for execution.
 
-    The ``handler`` identifies a registered job handler. Workers look up
-    handlers by name from a registry; arbitrary user-supplied code is
-    never executed.
-
-    Handler-registry validation is intentionally deferred to Phase 3
-    (workers), when the registry itself exists: until then any
-    well-formed handler name is accepted, so a typo'd name produces a
-    job that stays ``pending`` rather than an immediate rejection.
+    The ``handler`` must name a registered job handler; otherwise the
+    request is rejected with 422 listing the valid handlers. The job row
+    is committed before enqueueing; if Redis is unavailable the job is
+    marked ``failed`` and the API returns 503 so nothing is silently
+    stranded in ``pending``.
     """
+    handler = get_handler(job_create.handler)
+    if handler is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                f"Unknown handler '{job_create.handler}'. "
+                f"Registered handlers: {', '.join(registered_handlers())}"
+            ),
+        )
+
     job = Job(handler=job_create.handler, payload=job_create.payload)
     db.add(job)
     db.commit()
     db.refresh(job)
+
+    try:
+        queue.enqueue(str(job.id))
+    except Exception:  # noqa: BLE001 - any enqueue failure marks job failed
+        job.status = JobStatus.FAILED
+        job.error = "Queue unavailable: job could not be enqueued"
+        db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Job created but could not be queued",
+        )
 
     return job
 
