@@ -9,8 +9,8 @@ from app.jobs.registry import register_handler
 
 @register_handler("echo")
 def echo_handler(payload: dict[str, Any]) -> dict[str, Any]:
-    """Return ``{"echo": <payload>}``."""
-    return {"echo": payload}
+    """Return the payload unchanged."""
+    return payload
 
 
 __all__ = ["echo_handler"]

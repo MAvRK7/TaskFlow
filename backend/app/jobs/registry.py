@@ -26,6 +26,8 @@ def register_handler(name: str) -> Callable[[HandlerFunc], HandlerFunc]:
     """
 
     def decorator(func: HandlerFunc) -> HandlerFunc:
+        if name in _REGISTRY:
+            raise ValueError(f"Handler '{name}' is already registered")
         _REGISTRY[name] = func
         return func
 
