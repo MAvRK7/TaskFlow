@@ -1,0 +1,21 @@
+# CODEOWNERS
+#
+# Files matching these patterns require review from the listed owner(s)
+# before they can be merged. This enforces the "reviewed by another agent"
+# requirement for major changes: any change to application code, CI/CD
+# configuration, or lockfiles must be reviewed and the reviewer's findings
+# verified before implementation is considered complete.
+
+# Core application code — changes here need review
+/backend/ @MAvRK7
+
+# CI/CD configuration — changes to pipelines need review
+/.github/ @MAvRK7
+
+# Project configuration and lockfiles — dependency/infra changes need review
+/backend/pyproject.toml @MAvRK7
+/backend/uv.lock @MAvRK7
+
+# Project-level documentation and guides
+/agents.md @MAvRK7
+/README.md @MAvRK7
