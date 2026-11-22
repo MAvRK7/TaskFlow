@@ -7,6 +7,8 @@ delegated to the shared queue dependency in ``app.queue.client``.
 
 from __future__ import annotations
 
+import logging
+from datetime import UTC, datetime
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -18,7 +20,44 @@ from app.jobs.registry import get_handler, registered_handlers
 from app.jobs.schemas import JobCreate, JobRead
 from app.queue.client import QueueProtocol, get_queue
 
+logger = logging.getLogger(__name__)
+
+#: Bound on the persisted error text, matching the worker's convention
+#: (design doc §5) so no single row carries an unbounded traceback string.
+MAX_ERROR_LENGTH = 2000
+
 router = APIRouter()
+
+
+def _record_enqueue_failure(db: Session, job: Job, exc: Exception) -> None:
+    """Mark ``job`` as failed because it could not be queued.
+
+    ``failed`` is terminal, so ``completed_at`` is set here too; anything that
+    assumes terminal jobs have a completion timestamp then sees these rows.
+    The cause is kept as ``"<ExceptionType>: <message>"`` truncated to
+    :data:`MAX_ERROR_LENGTH`, while the client-facing detail stays generic.
+
+    This function never raises. If the recovery write fails as well, the job
+    stays ``pending`` (Phase 3 known limitation) and the job id is logged at
+    ERROR so it can be reconciled later — the client still gets the documented
+    503 rather than a 500.
+    """
+    # Read the id before committing: a failed commit/rollback expires the
+    # instance, and re-loading attributes would fail with the same broken
+    # connection that caused this path.
+    job_id = job.id
+
+    job.status = JobStatus.FAILED
+    job.error = f"{type(exc).__name__}: {exc}"[:MAX_ERROR_LENGTH]
+    job.completed_at = datetime.now(UTC)
+    try:
+        db.commit()
+    except Exception:
+        # Recovery must not mask the 503 the client is owed.
+        db.rollback()
+        logger.exception(
+            "Could not record enqueue failure for job %s; job left pending", job_id
+        )
 
 
 @router.post(
@@ -37,8 +76,9 @@ def create_job(
     The ``handler`` must name a registered job handler; otherwise the
     request is rejected with 422 listing the valid handlers. The job row
     is committed before enqueueing; if Redis is unavailable the job is
-    marked ``failed`` and the API returns 503 so nothing is silently
-    stranded in ``pending``.
+    marked ``failed`` with the cause recorded and the API returns 503 so
+    nothing is silently stranded in ``pending``. If even the recovery write
+    fails, the client still receives 503 and the job id is logged.
     """
     handler = get_handler(job_create.handler)
     if handler is None:
@@ -57,14 +97,13 @@ def create_job(
 
     try:
         queue.enqueue(str(job.id))
-    except Exception:  # noqa: BLE001 - any enqueue failure marks job failed
-        job.status = JobStatus.FAILED
-        job.error = "Queue unavailable: job could not be enqueued"
-        db.commit()
+    except Exception as exc:
+        # Any enqueue failure (refused, timed out, auth) marks the job failed.
+        _record_enqueue_failure(db, job, exc)
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Job created but could not be queued",
-        )
+        ) from exc
 
     return job
 
