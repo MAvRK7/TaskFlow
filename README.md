@@ -61,7 +61,7 @@ backend/
 │       └── 0001_create_jobs_table.py
 ├── app/
 │   ├── __init__.py
-│   ├── main.py         # FastAPI entrypoint (/health, /)
+│   ├── main.py         # FastAPI entrypoint (/health, /); loads job handlers
 │   ├── core/
 │   │   ├── __init__.py
 │   │   └── config.py   # Settings from environment variables
@@ -70,10 +70,19 @@ backend/
 │   │   └── session.py  # SQLAlchemy engine, session, Base
 │   ├── jobs/
 │   │   ├── __init__.py
-│   │   └── models.py   # Job model + JobStatus enum
-│   └── api/            # route modules (to be implemented)
+│   │   ├── models.py   # Job model + JobStatus enum
+│   │   ├── registry.py # handler registry + load_builtin_handlers()
+│   │   ├── schemas.py  # API contract; payload size cap
+│   │   └── handlers/   # echo, add_numbers (self-register on import)
+│   ├── queue/
+│   │   └── client.py   # Redis queue client + get_queue() dependency
+│   └── api/
+│       └── routes.py   # POST /jobs, GET /jobs/{job_id}
 ├── tests/
-│   └── test_job_model.py
+│   ├── test_job_model.py
+│   ├── test_api.py
+│   ├── test_handlers.py
+│   └── test_queue_client.py
 ```
 
 ## Getting started (backend)
@@ -100,6 +109,14 @@ curl http://localhost:8000/health
 # 6. Run tests (in-memory SQLite, no live DB needed)
 uv run pytest tests/
 ```
+
+## Current limitations (Phase 3)
+
+- **No authentication or authorisation.** Anyone who can reach the API can submit jobs and read any job's `payload` and `result`; the job UUID is effectively a bearer token. Payloads and results are not a secret store.
+- **Single tenant.** `Job` has no owner/`tenant_id`, `GET /jobs/{id}` is unscoped, and every caller shares one `taskflow:jobs` Redis key. This is an explicit Phase 3 assumption; auth must not land before tenant scoping.
+- **Payloads capped at 64 KiB** of compact JSON (`MAX_PAYLOAD_BYTES`), to bound memory and storage per submission.
+- **Crash window between commit and enqueue.** The API commits the job, then pushes to Redis. If the process dies in between, the row stays `pending` with no queue entry until the Phase 4 reconciler exists.
+- **No retries yet.** A failed job is terminal; retries with backoff are Phase 4.
 
 ## License
 

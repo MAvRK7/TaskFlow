@@ -6,7 +6,14 @@ needs no external services.
 
 from __future__ import annotations
 
-from app.queue.client import QueueClient, QueueProtocol, get_queue
+from app.queue.client import (
+    BLPOP_TIMEOUT_SECONDS,
+    CONNECT_TIMEOUT_SECONDS,
+    SOCKET_TIMEOUT_SECONDS,
+    QueueClient,
+    QueueProtocol,
+    get_queue,
+)
 
 
 class StubRedis:
@@ -74,3 +81,33 @@ def test_get_queue_returns_queue_protocol() -> None:
     """get_queue returns an object implementing QueueProtocol."""
     queue = get_queue()
     assert isinstance(queue, QueueProtocol)
+
+
+def test_queue_client_bounds_redis_timeouts() -> None:
+    """The Redis client sets connect/read timeouts so failures surface fast.
+
+    Without these, a blackholed Redis (dropped packets rather than a refused
+    connection) makes ``POST /jobs`` hang for the OS TCP timeout instead of
+    taking the documented 503 path.
+    """
+    client = QueueClient()
+
+    kwargs = client._client.connection_pool.connection_kwargs  # type: ignore[attr-defined]
+    assert kwargs["socket_connect_timeout"] == CONNECT_TIMEOUT_SECONDS
+    assert kwargs["socket_timeout"] == SOCKET_TIMEOUT_SECONDS
+    assert kwargs["health_check_interval"] > 0
+
+
+def test_socket_timeout_exceeds_blocking_pop_timeout() -> None:
+    """BLPOP must be able to return before the socket read times out."""
+    assert SOCKET_TIMEOUT_SECONDS > BLPOP_TIMEOUT_SECONDS
+
+
+def test_dequeue_defaults_to_blocking_pop_timeout() -> None:
+    """dequeue() blocks for the documented default timeout."""
+    stub = StubRedis()
+    client = QueueClient(redis_client=stub)  # type: ignore[arg-type]
+
+    client.dequeue()
+
+    assert stub.blpop_calls == [("taskflow:jobs", BLPOP_TIMEOUT_SECONDS)]

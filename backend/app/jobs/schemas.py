@@ -7,11 +7,19 @@ internal database implementation details are not exposed to API clients.
 
 from __future__ import annotations
 
+import json
 from datetime import datetime
 from typing import Any
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+#: Maximum serialised JSON size of a job payload, in bytes.
+#:
+#: Bounds the memory and storage cost of a single submission: the payload is
+#: copied into ``Job.payload`` and, for handlers like ``echo``, into
+#: ``Job.result``, so an unbounded body is a cheap way to exhaust the API.
+MAX_PAYLOAD_BYTES = 64 * 1024
 
 
 class JobCreate(BaseModel):
@@ -23,6 +31,17 @@ class JobCreate(BaseModel):
     # column length; SQLite does not).
     handler: str = Field(min_length=1, max_length=255)
     payload: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("payload")
+    @classmethod
+    def _payload_within_size_limit(cls, payload: dict[str, Any]) -> dict[str, Any]:
+        """Reject payloads whose compact JSON encoding exceeds the cap."""
+        size = len(json.dumps(payload, separators=(",", ":")).encode())
+        if size > MAX_PAYLOAD_BYTES:
+            raise ValueError(
+                f"payload must be at most {MAX_PAYLOAD_BYTES} bytes of JSON, got {size}"
+            )
+        return payload
 
 
 class JobRead(BaseModel):

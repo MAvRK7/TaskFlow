@@ -1,7 +1,7 @@
 # TaskFlow Phase 3 Design: Redis Integration + Synchronous Workers
 
 **Date:** 2026-11-18
-**Status:** Revised after review — awaiting approval
+**Status:** Approved 2026-11-18 — implemented (PR #4); follow-up hardening tracked in issue #6
 **Author:** Coding agent
 
 ## 1. Intent and why
@@ -147,7 +147,11 @@ If a job with an unregistered handler is executed (typo submitted before registr
 ### Known Phase 3 limitations
 
 - A worker that dies mid-job (OOM, `kill -9`, host loss) leaves the job in `running` forever. Detection (heartbeat / stale sweep) is Phase 4 alongside retries. Recorded here so it is not later mistaken for an unnoticed bug.
-- If Redis is down *and* the follow-up "mark job failed" write also fails (database unreachable), the job remains `pending`. The API logs this loudly and returns 503; reconciliation arrives with the Phase 4 sweep.
+- If Redis is down *and* the follow-up "mark job failed" write also fails (database unreachable), the job remains `pending`. The API logs this loudly (including the job id) and returns 503; reconciliation arrives with the Phase 4 sweep.
+- There is a crash window between the first `db.commit()` and `queue.enqueue()`: if the API process dies in between, the row stays `pending` with no queue entry and nothing re-enqueues it. The queue is the only trigger; only the Phase 4 reconciler can recover these rows.
+- Job payloads are capped at `MAX_PAYLOAD_BYTES` (64 KiB of compact JSON) at the API boundary. The cap bounds memory and storage cost per submission; it is not a licence to store large documents.
+- **No authentication or authorisation.** Anyone who can reach the API can submit work and read any job's `payload`/`result`; the job UUID is effectively a bearer token. Payloads and results are not a secret store. Acceptable for the current local/learning phase, and must be written down rather than implied.
+- **No tenancy.** `Job` has no owner/`tenant_id`, `GET /jobs/{id}` is unscoped, and all callers share the single `taskflow:jobs` Redis key. This is an explicit assumption for Phase 3, not an oversight: adding auth later without tenant scoping would turn the current design into a cross-tenant data leak.
 
 ### Testing strategy
 
@@ -185,7 +189,7 @@ If a job with an unregistered handler is executed (typo submitted before registr
 
 ## 7. Approval
 
-This design doc reflects decisions agreed in conversation and the fixes from review. It needs human approval before any implementation code is written.
+Approved by the project owner on **2026-11-18**, and implemented in PR #4 (`135b765`). The open follow-ups from the post-merge review live in issue #6; this section stays as the record of the approval date.
 
 ---
 

@@ -164,8 +164,11 @@ Module responsibilities:
 - `backend/app/core/config.py` — `Settings` class reading env vars (`DATABASE_URL`, `REDIS_URL`, etc.)
 - `backend/app/db/session.py` — `Base`, `get_engine()`, `get_session_local()`, `get_db()` dependency
 - `backend/app/jobs/models.py` — `Job` model + `JobStatus` enum (`pending`, `running`, `completed`, `failed`, `cancelled`)
-- `backend/app/jobs/schemas.py` — Pydantic request/response schemas; `JobCreate.handler` bounded 1–255 to mirror the DB column
-- `backend/app/api/routes.py` — `POST /jobs` (201, creates pending job), `GET /jobs/{job_id}` (200/404)
+- `backend/app/jobs/schemas.py` — Pydantic request/response schemas; `JobCreate.handler` bounded 1–255 to mirror the DB column, `JobCreate.payload` capped at `MAX_PAYLOAD_BYTES` (64 KiB of compact JSON)
+- `backend/app/jobs/registry.py` — maps handler names to callables; `register_handler`, `get_handler`, `registered_handlers`, and `load_builtin_handlers()` (explicit bootstrap, called from `app/main.py`)
+- `backend/app/jobs/handlers/` — `echo` and `add_numbers`; modules self-register on import
+- `backend/app/queue/client.py` — Redis list queue (`enqueue`, `dequeue`, `close`), bounded socket timeouts, `get_queue()` dependency
+- `backend/app/api/routes.py` — `POST /jobs` (201, creates pending job; 503 with the failure recorded if Redis is unreachable), `GET /jobs/{job_id}` (200/404)
 - `backend/tests/` — pytest suite (in-memory SQLite)
 - `infra/docker-compose.yml` — Postgres + Redis + API + worker services
 - `.github/workflows/ci.yml` — CI pipeline (test + integration jobs, working-directory: `backend`)
@@ -179,7 +182,8 @@ Module responsibilities:
 - **Formatter/linter:** Ruff — `ruff check .` and `ruff format --check .` must pass
 - **Type checker:** mypy (strict on new modules)
 - **Tests:** pytest — add tests for each component; run full suite before committing
-- **Migrations:** Alembic — `uv run alembic revision --autogenerate` or manual version files
+- **Migrations:** Alembic — `uv run alembic revision --autogenerate` or manual version files. Every revision module declares `__all__ = ["branch_labels", "depends_on", "down_revision", "revision"]` (keep it a literal list) — Alembic reads those globals by name via introspection, so the export list stops code scanning reporting them as unused. `alembic/script.py.mako` already emits it.
+- **Handler registration:** never rely on an unused-import side effect. Entry points call `load_builtin_handlers()`; ruff and CodeQL both flag unused imports, and a "cleanup" of that import silently empties the registry.
 - **Commit style:** Conventional Commits (`feat:`, `fix:`, `docs:`, `refactor:`, `test:`, `chore:`)
 - **Branch style:** `feature/<short-description>`, `fix/<short-description>`, `chore/<short-description>`
 - **Pre-commit:** run `ruff check`, `ruff format --check`, `mypy`, `pytest` before committing.
