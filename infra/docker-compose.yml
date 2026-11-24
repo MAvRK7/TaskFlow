@@ -45,7 +45,7 @@ services:
     environment:
       DATABASE_URL: postgresql+psycopg2://taskflow:taskflow@postgres:5432/taskflow
       REDIS_URL: redis://redis:6379/0
-    command: python -m app.worker
+    command: python -m app.workers
 
 volumes:
   postgres_data:

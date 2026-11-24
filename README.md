@@ -106,7 +106,10 @@ uv run uvicorn app.main:app --reload
 # 5. Health check
 curl http://localhost:8000/health
 
-# 6. Run tests (in-memory SQLite, no live DB needed)
+# 6. Run a worker in a second terminal (needs Redis)
+uv run python -m app.workers
+
+# 7. Run tests (in-memory SQLite, no live DB needed)
 uv run pytest tests/
 ```
 
