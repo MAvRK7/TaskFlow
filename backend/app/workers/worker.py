@@ -16,21 +16,29 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 import uuid
 from datetime import UTC, datetime
+from typing import Any, cast
 
 from sqlalchemy import func, update
+from sqlalchemy.engine import CursorResult
 from sqlalchemy.orm import Session
 
 from app.db.session import get_session_local
 from app.jobs.models import Job, JobStatus
 from app.jobs.registry import get_handler
-from app.queue.client import QueueProtocol, get_queue
+from app.queue.client import BLPOP_TIMEOUT_SECONDS, QueueProtocol, get_queue
 
 logger = logging.getLogger(__name__)
 
 MAX_ERROR_LENGTH = 2000
-DEQUEUE_TIMEOUT = 5.0
+#: Blocking-pop timeout; shares the queue client's default so BLPOP returns
+#: before the socket read timeout fires.
+DEQUEUE_TIMEOUT = BLPOP_TIMEOUT_SECONDS
+#: Pause after a dequeue failure. Without it, a Redis that refuses connections
+#: turns the loop into a hot spin that floods logs and burns CPU.
+DEQUEUE_ERROR_BACKOFF_SECONDS = 1.0
 
 # Set by signal handlers in __main__.py. When True, the worker finishes
 # the current job and exits.
@@ -52,6 +60,18 @@ def _format_error(exc: Exception) -> str:
     return f"{type(exc).__name__}: {exc}"[:MAX_ERROR_LENGTH]
 
 
+def _fail_job(db: Session, job: Job, message: str) -> None:
+    """Mark ``job`` failed with a terminal timestamp and commit.
+
+    ``failed`` is terminal, so ``completed_at`` is always set — readers that
+    assume terminal jobs have a completion timestamp then see these rows.
+    """
+    job.status = JobStatus.FAILED
+    job.error = message[:MAX_ERROR_LENGTH]
+    job.completed_at = datetime.now(UTC)
+    db.commit()
+
+
 def claim_job(db: Session, job_id: uuid.UUID) -> bool:
     """Atomically claim a pending job by setting status to running.
 
@@ -59,14 +79,19 @@ def claim_job(db: Session, job_id: uuid.UUID) -> bool:
     same job. Returns True if the job was claimed, False if it was already
     claimed by another worker or is in a terminal state.
     """
-    result = db.execute(
-        update(Job)
-        .where(Job.id == job_id)
-        .where(Job.status == JobStatus.PENDING)
-        .values(status=JobStatus.RUNNING, started_at=func.now())
+    # DML through Session.execute returns a CursorResult at runtime, but the
+    # declared return type is the generic Result.
+    result = cast(
+        "CursorResult[Any]",
+        db.execute(
+            update(Job)
+            .where(Job.id == job_id)
+            .where(Job.status == JobStatus.PENDING)
+            .values(status=JobStatus.RUNNING, started_at=func.now()),
+        ),
     )
     db.commit()
-    return result.rowcount > 0  # type: ignore[attr-defined]
+    return result.rowcount > 0
 
 
 def process_job(job_id_str: str, db: Session) -> None:
@@ -97,38 +122,31 @@ def process_job(job_id_str: str, db: Session) -> None:
     # Get handler from registry
     handler = get_handler(job.handler)
     if handler is None:
-        job.status = JobStatus.FAILED
-        job.error = f"Unknown handler: {job.handler}"[:MAX_ERROR_LENGTH]
-        db.commit()
+        logger.warning(
+            "Job %s names unregistered handler %r; marking failed",
+            job.id,
+            job.handler,
+        )
+        _fail_job(db, job, f"Unknown handler: {job.handler}")
         return
 
     # Execute handler
     try:
         result = handler(job.payload)
     except Exception as exc:
-        job.status = JobStatus.FAILED
-        job.error = _format_error(exc)
         logger.exception("Job %s handler %s failed", job.id, job.handler)
-        db.commit()
+        _fail_job(db, job, _format_error(exc))
         return
 
     # Validate result is dict or None
     if result is not None:
         if not isinstance(result, dict):
-            job.status = JobStatus.FAILED
-            job.error = (f"Handler returned non-dict: {type(result).__name__}")[
-                :MAX_ERROR_LENGTH
-            ]
-            db.commit()
+            _fail_job(db, job, f"Handler returned non-dict: {type(result).__name__}")
             return
         try:
             json.dumps(result)
         except (TypeError, ValueError) as exc:
-            job.status = JobStatus.FAILED
-            job.error = f"Handler result not JSON-serialisable: {exc}"[
-                :MAX_ERROR_LENGTH
-            ]
-            db.commit()
+            _fail_job(db, job, f"Handler result not JSON-serialisable: {exc}")
             return
 
     # Success
@@ -156,7 +174,11 @@ def run_worker(queue: QueueProtocol | None = None) -> None:
         try:
             job_id_str = queue.dequeue(timeout=DEQUEUE_TIMEOUT)
         except Exception:
-            logger.exception("Queue dequeue failed, retrying")
+            logger.exception(
+                "Queue dequeue failed, retrying in %ss",
+                DEQUEUE_ERROR_BACKOFF_SECONDS,
+            )
+            time.sleep(DEQUEUE_ERROR_BACKOFF_SECONDS)
             continue
 
         if job_id_str is None:

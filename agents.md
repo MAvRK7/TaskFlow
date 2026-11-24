@@ -168,6 +168,8 @@ Module responsibilities:
 - `backend/app/jobs/registry.py` — maps handler names to callables; `register_handler`, `get_handler`, `registered_handlers`, and `load_builtin_handlers()` (explicit bootstrap, called from `app/main.py`)
 - `backend/app/jobs/handlers/` — `echo` and `add_numbers`; modules self-register on import
 - `backend/app/queue/client.py` — Redis list queue (`enqueue`, `dequeue`, `close`), bounded socket timeouts, `get_queue()` dependency
+- `backend/app/workers/__main__.py` — `python -m app.workers`; installs signal handlers, calls `load_builtin_handlers()`, closes the queue on exit
+- `backend/app/workers/worker.py` — `run_worker()` loop: dequeue, atomic claim (`UPDATE ... WHERE status='pending'`), execute the registered handler, set terminal state (`completed_at` on both success and failure); backs off on dequeue errors
 - `backend/app/api/routes.py` — `POST /jobs` (201, creates pending job; 503 with the failure recorded if Redis is unreachable), `GET /jobs/{job_id}` (200/404)
 - `backend/tests/` — pytest suite (in-memory SQLite)
 - `infra/docker-compose.yml` — Postgres + Redis + API + worker services
