@@ -71,7 +71,7 @@ Minor polish deferred to a later pass: `JobRead.status` could use the `JobStatus
 **`.github/CODEOWNERS`** — `@MAvRK7` review required for `/backend/`, `/.github/`, `pyproject.toml`, `uv.lock`, `agents.md`, `README.md`.
 
 **Branch protection on `main`** (GitHub repo settings):
-- Required status checks: `CI/test`, `CI/integration` (strict — must be up to date)
+- Required status checks: `test`, `integration` (strict — must be up to date). Use the **exact job names** from `ci.yml`; the workflow `name: CI` is *not* part of the check name. Requiring `CI/test` matches nothing and blocks every PR forever.
 - Required PR reviews: 1 approval, code owner review required, stale reviews dismissed
 - Force pushes: blocked
 - Branch deletion: blocked
